@@ -8,6 +8,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import ttkbootstrap as tb
 from PIL import Image, ImageTk, ImageFilter, ImageOps, ImageChops
+import numpy as np
+
 import matplotlib
 matplotlib.use("Agg")  # render offscreen, then show as image in Tk
 import matplotlib.pyplot as plt
@@ -353,6 +355,53 @@ class TrackerFrame(ttk.Frame):
         )
 
         return composite
+
+    def _build_color_halo(
+        self,
+        base: Image.Image,
+        canvas_size: tuple[int, int],
+        pad: int,
+        mask_canvas: Image.Image,
+    ) -> Image.Image:
+        halo_source = Image.new("RGBA", canvas_size, (0, 0, 0, 0))
+        halo_source.paste(base, (pad, pad))
+
+        premultiplied = self._premultiply_alpha(halo_source)
+        blurred = premultiplied
+        for radius in (26, 48):
+            blurred = blurred.filter(ImageFilter.GaussianBlur(radius=radius))
+
+        blurred = self._unpremultiply_alpha(blurred)
+
+        halo_alpha = ImageChops.subtract(blurred.split()[-1], mask_canvas)
+        halo_alpha = ImageOps.autocontrast(halo_alpha, cutoff=6)
+        halo_alpha = halo_alpha.filter(ImageFilter.GaussianBlur(radius=6))
+
+        halo_np = np.array(blurred, dtype=np.float32)
+        halo_np[..., :3] = np.clip(halo_np[..., :3] * 1.18 + 12, 0, 255)
+        halo_image = Image.fromarray(halo_np.astype(np.uint8), "RGBA")
+        halo_image.putalpha(halo_alpha)
+
+        return halo_image
+
+    def _premultiply_alpha(self, image: Image.Image) -> Image.Image:
+        arr = np.array(image, dtype=np.float32)
+        alpha = arr[..., 3:4] / 255.0
+        arr[..., :3] *= alpha
+        return Image.fromarray(arr.astype(np.uint8), "RGBA")
+
+    def _unpremultiply_alpha(self, image: Image.Image) -> Image.Image:
+        arr = np.array(image, dtype=np.float32)
+        alpha = arr[..., 3]
+        safe_alpha = alpha.copy()
+        safe_alpha[safe_alpha == 0] = 1
+        arr[..., :3] = np.clip(arr[..., :3] * 255.0 / safe_alpha[..., None], 0, 255)
+        arr[..., :3][alpha == 0] = 0
+        return Image.fromarray(arr.astype(np.uint8), "RGBA")
+
+    def _scale_mask(self, mask: Image.Image, factor: float) -> Image.Image:
+        factor = max(0.0, factor)
+        return mask.point(lambda v: min(255, int(v * factor)))
 
     def _dominant_color(self, image: Image.Image) -> tuple[int, int, int]:
         thumb = image.copy()
