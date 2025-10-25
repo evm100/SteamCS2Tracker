@@ -526,7 +526,7 @@ class TrackerFrame(ttk.Frame):
 
         plt.close("all")
         plt.style.use("dark_background")
-        fig, ax = plt.subplots(figsize=(6.8, 3.5), dpi=135)
+        fig, ax = plt.subplots(figsize=(3.4, 1.75), dpi=135)
         fig.patch.set_facecolor(BASE_BACKGROUND)
         ax.set_facecolor("#0b1a34")
 
@@ -648,10 +648,10 @@ class App(tb.Window):
         style.configure("TrackerFrame.TFrame", background=neon_bg)
         style.configure("NeonCard.TFrame", background=card_bg, borderwidth=0)
         style.configure("NeonPrimary.TLabel", background=card_bg, foreground="#f3f7ff", font=("Orbitron", 16, "bold"))
-        style.configure("NeonSecondary.TLabel", background=card_bg, foreground="#9ab5ff", font=("Segoe UI", 9))
-        style.configure("NeonValue.TLabel", background=card_bg, foreground=ACCENT_COLOR, font=("Share Tech Mono", 13, "bold"))
-        style.configure("NeonValueSecondary.TLabel", background=card_bg, foreground="#8ec7ff", font=("Share Tech Mono", 12))
-        style.configure("NeonInfo.TLabel", background=card_bg, foreground="#738ab4", font=("Segoe UI", 9))
+        style.configure("NeonSecondary.TLabel", background=card_bg, foreground="#9ab5ff", font=("Segoe UI", 11))
+        style.configure("NeonValue.TLabel", background=card_bg, foreground=ACCENT_COLOR, font=("Share Tech Mono", 15, "bold"))
+        style.configure("NeonValueSecondary.TLabel", background=card_bg, foreground="#8ec7ff", font=("Share Tech Mono", 14))
+        style.configure("NeonInfo.TLabel", background=card_bg, foreground="#738ab4", font=("Segoe UI", 10))
         style.configure("NeonImage.TLabel", background=card_bg)
         style.configure("Chart.TLabel", background=neon_bg, foreground="#9ab5ff", font=("Share Tech Mono", 11))
         style.configure("Footer.TFrame", background=neon_bg)
