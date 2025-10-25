@@ -46,7 +46,7 @@ class TrackerFrame(ttk.Frame):
     def configure_padding(self):
         for i in range(3):
             self.columnconfigure(i, weight=1)
-        self.rowconfigure(3, weight=1)
+        self.rowconfigure(1, weight=1)
 
     def build_ui(self, title: str):
         self.card = ttk.Frame(self, padding=12, style="Card.TFrame")
@@ -82,12 +82,31 @@ class TrackerFrame(ttk.Frame):
         self.updated_lbl.grid(row=3, column=1, sticky="w", pady=(2,0))
 
         # Chart area
+        self.chart_points = []
+        self.timeframe_var = tk.StringVar(value="day")
+
         self.chart_lbl = ttk.Label(self)
         self.chart_lbl.grid(row=1, column=0, columnspan=3, sticky="nsew", pady=(8,0))
 
+        self.timeframe_frame = ttk.Frame(self, padding=(0,6,0,0))
+        self.timeframe_frame.grid(row=2, column=0, columnspan=3, sticky="ew")
+        self.timeframe_frame.columnconfigure((0,1,2), weight=1)
+
+        self.timeframe_buttons = {}
+        for idx, (label, key) in enumerate([("Day", "day"), ("Week", "week"), ("Lifetime", "lifetime")]):
+            btn = tb.Button(
+                self.timeframe_frame,
+                text=label,
+                command=lambda k=key: self._set_timeframe(k),
+                bootstyle="primary" if key == self.timeframe_var.get() else "secondary-outline",
+                width=12,
+            )
+            btn.grid(row=0, column=idx, padx=6)
+            self.timeframe_buttons[key] = btn
+
         # Controls
         self.controls = ttk.Frame(self, padding=(0,8,0,0))
-        self.controls.grid(row=2, column=0, columnspan=3, sticky="ew")
+        self.controls.grid(row=3, column=0, columnspan=3, sticky="ew")
         self.controls.columnconfigure(3, weight=1)
 
         ttk.Button(self.controls, text="Refresh Now", command=self.fetch_all_async).grid(row=0, column=0, padx=(0,6))
@@ -198,6 +217,21 @@ class TrackerFrame(ttk.Frame):
         self.tk_img = ImageTk.PhotoImage(pil_img)
         self.image_lbl.configure(image=self.tk_img)
 
+    def _set_timeframe(self, timeframe: str):
+        if timeframe == self.timeframe_var.get():
+            # still refresh in case data changed
+            self._render_chart(timeframe)
+            return
+
+        self.timeframe_var.set(timeframe)
+        self._update_timeframe_buttons()
+        self._render_chart(timeframe)
+
+    def _update_timeframe_buttons(self):
+        for key, btn in self.timeframe_buttons.items():
+            style = "primary" if key == self.timeframe_var.get() else "secondary-outline"
+            btn.configure(bootstyle=style)
+
     def _plot_chart(self):
         csv_path = os.path.join(DATA_DIR, f"{self.slug}.csv")
         ts = []
@@ -217,83 +251,93 @@ class TrackerFrame(ttk.Frame):
 
         if not med:
             # no data yet — clear chart
-            self.chart_lbl.configure(image="")
+            self.chart_points = []
+            self.chart_lbl.configure(image="", text="No price history yet", anchor="center")
             return
 
         # Convert epochs to timezone-aware datetimes and sort chronologically
         timestamps = [datetime.fromtimestamp(t, tz=timezone.utc).astimezone() for t in ts]
-        paired = sorted(zip(timestamps, med), key=lambda x: x[0])
+        self.chart_points = sorted(zip(timestamps, med), key=lambda x: x[0])
+        self._render_chart(self.timeframe_var.get())
 
-        now = datetime.now(timezone.utc).astimezone()
-        ranges = [
-            ("Daily", now - timedelta(days=1)),
-            ("Weekly", now - timedelta(days=7)),
-            ("Lifetime", None),
-        ]
+    def _render_chart(self, timeframe: Optional[str] = None):
+        if timeframe is None:
+            timeframe = self.timeframe_var.get()
+
+        if not self.chart_points:
+            self.chart_lbl.configure(image="", text="No price history yet", anchor="center")
+            return
 
         plt.close("all")
         plt.style.use("seaborn-v0_8-darkgrid")
-        fig, axes = plt.subplots(3, 1, figsize=(6.6, 6.6), dpi=135, sharey=True)
-        fig.suptitle(unquote(self.market_hash), fontsize=12, fontweight="bold")
+        fig, ax = plt.subplots(figsize=(6.6, 3.4), dpi=135)
         fig.patch.set_facecolor("#0e1117")
+        ax.set_facecolor("#111827")
 
         line_color = "#4c72b0"
         fill_color = "#4c72b0"
 
+        times, prices = zip(*self.chart_points)
+        now = datetime.now(timezone.utc).astimezone(times[0].tzinfo)
+
+        span = {
+            "day": timedelta(days=1),
+            "week": timedelta(days=7),
+            "lifetime": None,
+        }.get(timeframe, None)
+
+        if span is None:
+            filtered = list(self.chart_points)
+            range_start = times[0]
+        else:
+            threshold = now - span
+            filtered = [(t, p) for t, p in self.chart_points if t >= threshold]
+            range_start = threshold
+
+        if not filtered:
+            filtered = [self.chart_points[-1]]
+
+        filtered_times, filtered_prices = zip(*filtered)
+
+        ax.plot(filtered_times, filtered_prices, color=line_color, linewidth=2.2, marker="o",
+                markersize=3.5, markerfacecolor="#f9fafb")
+        if len(filtered_prices) > 1:
+            ax.fill_between(filtered_times, filtered_prices, color=fill_color, alpha=0.12)
+
+        ax.set_title(f"Median Price — {timeframe.capitalize()} View", color="#f9fafb", fontsize=11, pad=12)
+
+        locator = mdates.AutoDateLocator(minticks=3, maxticks=6)
+        formatter = mdates.ConciseDateFormatter(locator)
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(formatter)
+        ax.tick_params(colors="#d1d5db", labelsize=8)
+        ax.xaxis.set_tick_params(rotation=0, labelcolor="#e5e7eb")
+
         dollar_formatter = ticker.FuncFormatter(lambda val, _: f"${val:,.0f}")
-        for ax in axes:
-            ax.set_facecolor("#111827")
-            ax.tick_params(colors="#d1d5db", labelsize=8)
-            ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-            ax.yaxis.set_major_formatter(dollar_formatter)
-            for spine in ax.spines.values():
-                spine.set_color("#1f2937")
+        ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+        ax.yaxis.set_major_formatter(dollar_formatter)
+        ax.yaxis.label.set_color("#e5e7eb")
+        ax.set_ylabel("Median Price", fontsize=9)
 
-        for ax, (label, start) in zip(axes, ranges):
-            if start is None:
-                filtered = list(paired)
-            else:
-                filtered = [(t, m) for t, m in paired if t >= start]
+        for spine in ax.spines.values():
+            spine.set_color("#1f2937")
 
-            if not filtered:
-                ax.text(0.5, 0.5, "Not enough data yet", ha="center", va="center", color="#9ca3af", fontsize=9,
-                        transform=ax.transAxes)
-                ax.set_title(f"{label} View", color="#f9fafb", fontsize=10)
-                continue
+        ax.grid(which="major", color="#1f2937", linestyle="-", linewidth=0.8, alpha=0.6)
 
-            times, prices = zip(*filtered)
-            ax.plot(times, prices, color=line_color, linewidth=2.2, marker="o", markersize=3.5, markerfacecolor="#f9fafb")
-            if len(prices) > 1:
-                ax.fill_between(times, prices, color=fill_color, alpha=0.12)
+        range_end = now
+        if len(filtered_times) == 1:
+            padding = {
+                "day": timedelta(hours=12),
+                "week": timedelta(days=1.5),
+            }.get(timeframe, timedelta(days=30))
+            range_start = min(range_start, filtered_times[0] - padding)
+            range_end = max(range_end, filtered_times[0] + padding)
 
-            ax.set_title(f"{label} View", color="#f9fafb", fontsize=10)
-            locator = mdates.AutoDateLocator(minticks=3, maxticks=6)
-            formatter = mdates.ConciseDateFormatter(locator)
-            ax.xaxis.set_major_locator(locator)
-            ax.xaxis.set_major_formatter(formatter)
-            ax.xaxis.set_tick_params(rotation=0, labelcolor="#e5e7eb")
-            ax.grid(which="major", color="#1f2937", linestyle="-", linewidth=0.8, alpha=0.6)
-            if start is not None:
-                range_start = start.astimezone(times[0].tzinfo)
-                range_end = now.astimezone(times[0].tzinfo)
-            else:
-                range_start, range_end = times[0], times[-1]
+        ax.set_xlim(range_start, range_end)
+        ax.margins(x=0.03)
+        ax.margins(y=0.1)
 
-            if len(times) == 1:
-                padding = {
-                    "Daily": timedelta(hours=12),
-                    "Weekly": timedelta(days=1.5),
-                }.get(label, timedelta(days=30))
-                range_start = min(range_start, times[0] - padding)
-                range_end = max(range_end, times[0] + padding)
-
-            ax.set_xlim(range_start, range_end)
-            ax.margins(x=0.03)
-            ax.margins(y=0.1)
-
-        axes[-1].set_xlabel("Date", color="#e5e7eb", fontsize=9)
-        axes[1].set_ylabel("Median Price", color="#e5e7eb", fontsize=9)
-        fig.tight_layout(rect=[0, 0.01, 1, 0.95], h_pad=1.2)
+        ax.set_xlabel("Date", color="#e5e7eb", fontsize=9)
 
         buf = io.BytesIO()
         fig.canvas.print_png(buf)
@@ -301,7 +345,7 @@ class TrackerFrame(ttk.Frame):
         from PIL import Image as _Image
         im = _Image.open(buf)
         self.tk_chart = ImageTk.PhotoImage(im)
-        self.chart_lbl.configure(image=self.tk_chart)
+        self.chart_lbl.configure(image=self.tk_chart, text="")
         plt.close(fig)
 
 
