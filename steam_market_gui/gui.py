@@ -121,7 +121,6 @@ class TrackerFrame(ttk.Frame):
 
         # Chart area
         self.chart_points = []
-        self.chart_pixel_points = []
         self.timeframe_var = tk.StringVar(value="day")
 
         self.chart_container = tk.Frame(
@@ -138,21 +137,6 @@ class TrackerFrame(ttk.Frame):
 
         self.chart_lbl = ttk.Label(self.chart_container, style="Chart.TLabel", anchor="center")
         self.chart_lbl.grid(row=0, column=0, sticky="nsew", padx=14, pady=12)
-        self.chart_lbl.bind("<Motion>", self._on_chart_motion)
-        self.chart_lbl.bind("<Leave>", lambda _: self._hide_chart_tooltip())
-
-        self.chart_tooltip = tk.Label(
-            self.chart_container,
-            text="",
-            bg="#1b2b4d",
-            fg="#f3f7ff",
-            font=("Segoe UI", 9, "bold"),
-            padx=6,
-            pady=3,
-            bd=0,
-            relief="flat",
-        )
-        self.chart_tooltip.place_forget()
 
         self.timeframe_frame = ttk.Frame(self, padding=(0, 6, 0, 0), style="TrackerFrame.TFrame")
         self.timeframe_frame.grid(row=2, column=0, columnspan=3, sticky="ew", padx=4)
@@ -524,8 +508,6 @@ class TrackerFrame(ttk.Frame):
         if not med:
             # no data yet — clear chart
             self.chart_points = []
-            self.chart_pixel_points = []
-            self._hide_chart_tooltip()
             self.chart_lbl.configure(image="", text="No price history yet", anchor="center")
             return
 
@@ -542,7 +524,6 @@ class TrackerFrame(ttk.Frame):
             self.chart_lbl.configure(image="", text="No price history yet", anchor="center")
             return
 
-        self._hide_chart_tooltip()
         plt.close("all")
         plt.style.use("dark_background")
         fig, ax = plt.subplots(figsize=(3.4, 1.75), dpi=135)
@@ -639,20 +620,6 @@ class TrackerFrame(ttk.Frame):
 
         ax.set_xlabel("Date", color="#d4defc", fontsize=9)
 
-        fig.canvas.draw()
-        width, height = fig.canvas.get_width_height()
-        if filtered_prices:
-            date_nums = mdates.date2num(filtered_times)
-            data_points = np.column_stack((date_nums, filtered_prices))
-            display_points = ax.transData.transform(data_points)
-            self.chart_pixel_points = [
-                (px, height - py, f"${price:,.2f}")
-                for (px, py), price in zip(display_points, filtered_prices)
-            ]
-        else:
-            self.chart_pixel_points = []
-            self._hide_chart_tooltip()
-
         buf = io.BytesIO()
         fig.canvas.print_png(buf)
         buf.seek(0)
@@ -661,36 +628,6 @@ class TrackerFrame(ttk.Frame):
         self.tk_chart = ImageTk.PhotoImage(im)
         self.chart_lbl.configure(image=self.tk_chart, text="")
         plt.close(fig)
-
-
-    def _on_chart_motion(self, event):
-        if not getattr(self, "chart_pixel_points", None):
-            return
-
-        closest = None
-        min_dist_sq = 64  # 8px radius
-        for px, py, price in self.chart_pixel_points:
-            dx = px - event.x
-            dy = py - event.y
-            dist_sq = dx * dx + dy * dy
-            if dist_sq <= min_dist_sq:
-                min_dist_sq = dist_sq
-                closest = (px, py, price)
-
-        if closest is None:
-            self._hide_chart_tooltip()
-            return
-
-        px, py, price = closest
-        self.chart_tooltip.configure(text=price)
-        y_position = max(py - 10, 0)
-        self.chart_tooltip.place(x=px, y=y_position, anchor="s")
-        self.chart_tooltip.lift()
-
-
-    def _hide_chart_tooltip(self):
-        if hasattr(self, "chart_tooltip"):
-            self.chart_tooltip.place_forget()
 
 
 class App(tb.Window):
