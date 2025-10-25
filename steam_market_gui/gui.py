@@ -142,13 +142,12 @@ class TrackerFrame(ttk.Frame):
 
         self.timeframe_buttons = {}
         for idx, (label, key) in enumerate([("Day", "day"), ("Week", "week"), ("Lifetime", "lifetime")]):
-            bootstyle = "info" if key == self.timeframe_var.get() else "secondary-outline"
+            style_name = "Timeframe.Selected.TButton" if key == self.timeframe_var.get() else "Timeframe.Unselected.TButton"
             btn = tb.Button(
                 self.timeframe_frame,
                 text=label,
                 command=lambda k=key: self._set_timeframe(k),
-                bootstyle=bootstyle,
-                width=14,
+                style=style_name,
             )
             btn.grid(row=0, column=idx, padx=6)
             btn.configure(cursor="hand2")
@@ -159,9 +158,24 @@ class TrackerFrame(ttk.Frame):
         self.controls.grid(row=3, column=0, columnspan=3, sticky="ew", padx=4)
         self.controls.columnconfigure(3, weight=1)
 
-        tb.Button(self.controls, text="Refresh Now", command=self.fetch_all_async, bootstyle="info-outline").grid(row=0, column=0, padx=(0,6))
-        tb.Button(self.controls, text="Open Listing", command=self.open_listing, bootstyle="secondary-outline").grid(row=0, column=1, padx=(0,6))
-        tb.Button(self.controls, text="Reload Image", command=self.fetch_image_async, bootstyle="warning-outline").grid(row=0, column=2, padx=(0,6))
+        tb.Button(
+            self.controls,
+            text="Refresh Now",
+            command=self.fetch_all_async,
+            style="Command.Primary.TButton",
+        ).grid(row=0, column=0, padx=(0, 6))
+        tb.Button(
+            self.controls,
+            text="Open Listing",
+            command=self.open_listing,
+            style="Command.Secondary.TButton",
+        ).grid(row=0, column=1, padx=(0, 6))
+        tb.Button(
+            self.controls,
+            text="Reload Image",
+            command=self.fetch_image_async,
+            style="Command.Warning.TButton",
+        ).grid(row=0, column=2, padx=(0, 6))
         self.interval_lbl = ttk.Label(self.controls, text=f"Auto-refresh: {REFRESH_SECONDS}s", style="NeonInfo.TLabel")
         self.interval_lbl.grid(row=0, column=3, sticky="e")
 
@@ -375,8 +389,8 @@ class TrackerFrame(ttk.Frame):
 
     def _update_timeframe_buttons(self):
         for key, btn in self.timeframe_buttons.items():
-            bootstyle = "info" if key == self.timeframe_var.get() else "secondary-outline"
-            btn.configure(bootstyle=bootstyle)
+            style_name = "Timeframe.Selected.TButton" if key == self.timeframe_var.get() else "Timeframe.Unselected.TButton"
+            btn.configure(style=style_name)
 
     def _plot_chart(self):
         csv_path = os.path.join(DATA_DIR, f"{self.slug}.csv")
@@ -548,6 +562,107 @@ class App(tb.Window):
         style.configure("Footer.TLabel", background=neon_bg, foreground="#6f82a8", font=("Segoe UI", 9))
         style.configure("TButton", font=("Segoe UI", 10))
 
+        # Modern button styling
+        style.configure(
+            "Command.Primary.TButton",
+            background=ACCENT_COLOR,
+            foreground="#061428",
+            borderwidth=0,
+            focusthickness=1,
+            focuscolor=ACCENT_COLOR,
+            padding=(20, 10),
+            relief="flat",
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.map(
+            "Command.Primary.TButton",
+            background=[("active", "#6bc5ff"), ("pressed", "#3a94ff"), ("disabled", "#244063")],
+            foreground=[("disabled", "#1b2d4a")],
+        )
+
+        style.configure(
+            "Command.Secondary.TButton",
+            background="#101c36",
+            foreground="#a9c7ff",
+            borderwidth=1,
+            focusthickness=1,
+            focuscolor="#2d4c7c",
+            padding=(20, 10),
+            relief="flat",
+            font=("Segoe UI", 10),
+        )
+        style.map(
+            "Command.Secondary.TButton",
+            background=[("active", "#15274a"), ("pressed", "#0f1d35")],
+            foreground=[("active", "#d5e4ff"), ("pressed", "#d5e4ff"), ("disabled", "#4d5f80")],
+        )
+
+        style.configure(
+            "Command.Warning.TButton",
+            background="#ffb347",
+            foreground="#231200",
+            borderwidth=0,
+            focusthickness=1,
+            focuscolor="#ffb347",
+            padding=(20, 10),
+            relief="flat",
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.map(
+            "Command.Warning.TButton",
+            background=[("active", "#ffc46d"), ("pressed", "#f79a2d"), ("disabled", "#5c4730")],
+            foreground=[("disabled", "#47361f")],
+        )
+
+        style.configure(
+            "Command.Danger.TButton",
+            background="#ff6f91",
+            foreground="#24030a",
+            borderwidth=0,
+            focusthickness=1,
+            focuscolor="#ff6f91",
+            padding=(18, 9),
+            relief="flat",
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.map(
+            "Command.Danger.TButton",
+            background=[("active", "#ff85a4"), ("pressed", "#f05578"), ("disabled", "#5d3440")],
+            foreground=[("disabled", "#3b1d25")],
+        )
+
+        style.configure(
+            "Timeframe.Selected.TButton",
+            background=ACCENT_COLOR,
+            foreground="#061428",
+            borderwidth=0,
+            focusthickness=0,
+            padding=(18, 9),
+            relief="flat",
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.map(
+            "Timeframe.Selected.TButton",
+            background=[("active", "#6bc5ff"), ("pressed", "#3a94ff")],
+            foreground=[("active", "#041021"), ("pressed", "#041021")],
+        )
+
+        style.configure(
+            "Timeframe.Unselected.TButton",
+            background="#101c36",
+            foreground="#8ba4d9",
+            borderwidth=0,
+            focusthickness=0,
+            padding=(18, 9),
+            relief="flat",
+            font=("Segoe UI", 10),
+        )
+        style.map(
+            "Timeframe.Unselected.TButton",
+            background=[("active", "#15284a"), ("pressed", "#0f1d34")],
+            foreground=[("active", "#c5d8ff"), ("pressed", "#c5d8ff")],
+        )
+
         client = SteamMarketClient(appid=APPID, currency=CURRENCY)
 
         container = ttk.Frame(self, padding=20, style="TrackerFrame.TFrame")
@@ -566,7 +681,7 @@ class App(tb.Window):
         footer = ttk.Frame(self, padding=(18, 10), style="Footer.TFrame")
         footer.pack(fill="x", side="bottom")
         ttk.Label(footer, text=f"Auto refresh every {REFRESH_SECONDS}s | Currency={CURRENCY}", style="Footer.TLabel").pack(side="left")
-        tb.Button(footer, text="Quit", command=self.destroy, bootstyle="danger-outline").pack(side="right")
+        tb.Button(footer, text="Quit", command=self.destroy, style="Command.Danger.TButton").pack(side="right")
 
 def main():
     app = App()
