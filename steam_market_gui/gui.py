@@ -514,7 +514,7 @@ class App(tb.Window):
         card_bg = CARD_BACKGROUND
 
         self.configure(background=neon_bg)
-        self.option_add("*Font", "Segoe UI 10")
+        self.option_add("*Font", ("Segoe UI", 10))
 
         style.configure("TrackerFrame.TFrame", background=neon_bg)
         style.configure("NeonCard.TFrame", background=card_bg, borderwidth=0)
