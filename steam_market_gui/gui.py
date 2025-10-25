@@ -315,15 +315,20 @@ class TrackerFrame(ttk.Frame):
         mask_canvas = Image.new("L", canvas_size, 0)
         mask_canvas.paste(alpha, (pad, pad))
 
-        glow_mask = mask_canvas.filter(ImageFilter.GaussianBlur(radius=36))
-        glow_mask = ImageOps.autocontrast(glow_mask, cutoff=12)
+        glow_mask = mask_canvas.filter(ImageFilter.GaussianBlur(radius=28))
+        glow_mask = ImageOps.autocontrast(glow_mask, cutoff=6)
+        glow_mask = glow_mask.filter(ImageFilter.GaussianBlur(radius=6))
+        glow_mask = self._scale_mask(glow_mask, 0.55)
 
-        highlight_mask = mask_canvas.filter(ImageFilter.GaussianBlur(radius=12))
-        highlight_mask = ImageOps.autocontrast(highlight_mask, cutoff=20)
+        highlight_mask = mask_canvas.filter(ImageFilter.GaussianBlur(radius=10))
+        highlight_mask = ImageOps.autocontrast(highlight_mask, cutoff=14)
+        highlight_mask = highlight_mask.filter(ImageFilter.GaussianBlur(radius=3))
+        highlight_mask = self._scale_mask(highlight_mask, 0.45)
 
         shadow_mask = ImageChops.offset(mask_canvas, 0, 16)
         shadow_mask = ImageOps.autocontrast(shadow_mask, cutoff=6)
-        shadow_mask = shadow_mask.filter(ImageFilter.GaussianBlur(radius=24))
+        shadow_mask = shadow_mask.filter(ImageFilter.GaussianBlur(radius=20))
+        shadow_mask = self._scale_mask(shadow_mask, 0.7)
 
         background = self._create_background_gradient(canvas_size)
         composite = background.convert("RGBA")
@@ -331,10 +336,14 @@ class TrackerFrame(ttk.Frame):
         accent_rgb = self._hex_to_rgb(self.secondary_accent)
         primary_rgb = self._dominant_color(base)
 
-        glow_layer = Image.new("RGBA", canvas_size, (*primary_rgb, 0))
+        glow_color = self._mix_colors(primary_rgb, accent_rgb, 0.2)
+        glow_color = self._mix_colors(glow_color, (255, 255, 255), 0.15)
+
+        glow_layer = Image.new("RGBA", canvas_size, (*glow_color, 0))
         glow_layer.putalpha(glow_mask)
 
-        highlight_color = self._mix_colors(primary_rgb, accent_rgb, 0.35)
+        highlight_color = self._mix_colors(primary_rgb, accent_rgb, 0.25)
+        highlight_color = self._mix_colors(highlight_color, (255, 255, 255), 0.35)
         highlight_layer = Image.new("RGBA", canvas_size, (*highlight_color, 0))
         highlight_layer.putalpha(highlight_mask)
 
