@@ -1,6 +1,6 @@
 import os, io, threading, time, sys, csv
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from urllib.parse import unquote
 from dotenv import load_dotenv
 
@@ -11,6 +11,8 @@ from PIL import Image, ImageTk
 import matplotlib
 matplotlib.use("Agg")  # render offscreen, then show as image in Tk
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from matplotlib import ticker
 
 from .steam_api import SteamMarketClient
 from .data_logger import PriceLogger
@@ -218,22 +220,73 @@ class TrackerFrame(ttk.Frame):
             self.chart_lbl.configure(image="")
             return
 
-        # Build plot
-        plt.clf()
-        fig = plt.figure(figsize=(5.5, 2.2), dpi=130)
-        ax = fig.add_subplot(111)
-        ax.plot(ts, med, linewidth=2)
-        ax.set_title(unquote(self.market_hash), fontsize=9)
-        ax.set_xlabel("time")
-        ax.set_ylabel("median price")
-        ax.grid(True, alpha=0.3)
-        # xticks sparse
-        if len(ts) > 6:
-            step = max(1, len(ts)//6)
-            ax.set_xticks(ts[::step])
-            from datetime import datetime as _dt
-            ax.set_xticklabels([_dt.fromtimestamp(x).strftime("%m-%d\n%H:%M") for x in ts[::step]], fontsize=7)
-        fig.tight_layout()
+        # Convert epochs to timezone-aware datetimes and sort chronologically
+        timestamps = [datetime.fromtimestamp(t, tz=timezone.utc).astimezone() for t in ts]
+        paired = sorted(zip(timestamps, med), key=lambda x: x[0])
+
+        now = datetime.now(timezone.utc).astimezone()
+        ranges = [
+            ("Daily", now - timedelta(days=1)),
+            ("Weekly", now - timedelta(days=7)),
+            ("Lifetime", None),
+        ]
+
+        plt.close("all")
+        plt.style.use("seaborn-v0_8-darkgrid")
+        fig, axes = plt.subplots(3, 1, figsize=(6.6, 6.6), dpi=135, sharey=True)
+        fig.suptitle(unquote(self.market_hash), fontsize=12, fontweight="bold")
+        fig.patch.set_facecolor("#0e1117")
+
+        line_color = "#4c72b0"
+        fill_color = "#4c72b0"
+
+        for ax in axes:
+            ax.set_facecolor("#111827")
+            ax.tick_params(colors="#d1d5db", labelsize=8)
+            ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+            ax.yaxis.set_major_formatter(ticker.StrMethodFormatter("${x:,.0f}"))
+            ax.ticklabel_format(style="plain", axis="y")
+            for spine in ax.spines.values():
+                spine.set_color("#1f2937")
+
+        for ax, (label, start) in zip(axes, ranges):
+            if start is None:
+                filtered = list(paired)
+            else:
+                filtered = [(t, m) for t, m in paired if t >= start]
+
+            if not filtered:
+                ax.text(0.5, 0.5, "Not enough data yet", ha="center", va="center", color="#9ca3af", fontsize=9,
+                        transform=ax.transAxes)
+                ax.set_title(f"{label} View", color="#f9fafb", fontsize=10)
+                continue
+
+            times, prices = zip(*filtered)
+            ax.plot(times, prices, color=line_color, linewidth=2.2, marker="o", markersize=3.5, markerfacecolor="#f9fafb")
+            if len(prices) > 1:
+                ax.fill_between(times, prices, color=fill_color, alpha=0.12)
+
+            ax.set_title(f"{label} View", color="#f9fafb", fontsize=10)
+            locator = mdates.AutoDateLocator(minticks=3, maxticks=6)
+            formatter = mdates.ConciseDateFormatter(locator)
+            ax.xaxis.set_major_locator(locator)
+            ax.xaxis.set_major_formatter(formatter)
+            ax.xaxis.set_tick_params(rotation=0, labelcolor="#e5e7eb")
+            ax.grid(which="major", color="#1f2937", linestyle="-", linewidth=0.8, alpha=0.6)
+            if len(times) == 1:
+                padding = {
+                    "Daily": timedelta(hours=12),
+                    "Weekly": timedelta(days=1.5),
+                }.get(label, timedelta(days=30))
+                ax.set_xlim(times[0] - padding, times[0] + padding)
+            else:
+                ax.set_xlim(times[0], times[-1])
+                ax.margins(x=0.03)
+            ax.margins(y=0.1)
+
+        axes[-1].set_xlabel("Date", color="#e5e7eb", fontsize=9)
+        axes[1].set_ylabel("Median Price", color="#e5e7eb", fontsize=9)
+        fig.tight_layout(rect=[0, 0.01, 1, 0.95], h_pad=1.2)
 
         buf = io.BytesIO()
         fig.canvas.print_png(buf)
