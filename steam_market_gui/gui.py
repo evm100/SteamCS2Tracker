@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import tkinter as tk
 from tkinter import ttk, messagebox
 import ttkbootstrap as tb
-from PIL import Image, ImageTk, ImageFilter, ImageOps
+from PIL import Image, ImageTk, ImageFilter, ImageOps, ImageChops
 import matplotlib
 matplotlib.use("Agg")  # render offscreen, then show as image in Tk
 import matplotlib.pyplot as plt
@@ -24,9 +24,10 @@ APPID = 730
 CURRENCY = int(os.getenv("CURRENCY", "1"))
 REFRESH_SECONDS = int(os.getenv("REFRESH_SECONDS", "300"))
 
-ACCENT_COLOR = "#7cf9d2"
-SECONDARY_ACCENT = "#7a8cff"
-CARD_BACKGROUND = "#0b1226"
+ACCENT_COLOR = "#58b4ff"
+SECONDARY_ACCENT = "#5e7cff"
+CARD_BACKGROUND = "#0b162f"
+BASE_BACKGROUND = "#050b18"
 
 DEFAULT_URL_1 = os.getenv("ITEM_URL_1", "https://steamcommunity.com/market/listings/730/%E2%98%85%20Bayonet%20%7C%20Marble%20Fade%20%28Factory%20New%29")
 DEFAULT_URL_2 = os.getenv("ITEM_URL_2", "https://steamcommunity.com/market/listings/730/%E2%98%85%20Falchion%20Knife%20%7C%20Marble%20Fade%20%28Factory%20New%29")
@@ -59,7 +60,7 @@ class TrackerFrame(ttk.Frame):
     def build_ui(self, title: str):
         self.card_border = tk.Frame(
             self,
-            bg="#05070f",
+            bg=BASE_BACKGROUND,
             highlightbackground=self.accent_color,
             highlightcolor=self.accent_color,
             highlightthickness=2,
@@ -122,9 +123,9 @@ class TrackerFrame(ttk.Frame):
 
         self.chart_container = tk.Frame(
             self,
-            bg="#05070f",
-            highlightbackground="#1f2a4f",
-            highlightcolor="#1f2a4f",
+            bg=BASE_BACKGROUND,
+            highlightbackground="#1b2b4d",
+            highlightcolor="#1b2b4d",
             highlightthickness=1,
             bd=0,
         )
@@ -141,7 +142,7 @@ class TrackerFrame(ttk.Frame):
 
         self.timeframe_buttons = {}
         for idx, (label, key) in enumerate([("Day", "day"), ("Week", "week"), ("Lifetime", "lifetime")]):
-            bootstyle = "success" if key == self.timeframe_var.get() else "dark-outline"
+            bootstyle = "info" if key == self.timeframe_var.get() else "secondary-outline"
             btn = tb.Button(
                 self.timeframe_frame,
                 text=label,
@@ -291,34 +292,52 @@ class TrackerFrame(ttk.Frame):
     def _stylize_item_image(self, pil_img: Image.Image) -> Image.Image:
         base = ImageOps.contain(pil_img.convert("RGBA"), (220, 220))
         alpha = base.split()[-1]
-        rgb = base.convert("RGB")
-        rgb = ImageOps.autocontrast(rgb, cutoff=2)
-        rgb = rgb.filter(ImageFilter.UnsharpMask(radius=1.6, percent=180))
-        base = Image.merge("RGBA", (*rgb.split(), alpha))
 
-        mask = alpha
-        pad = 36
+        pad = 44
+        canvas_size = (base.width + pad * 2, base.height + pad * 2)
+
+        mask_canvas = Image.new("L", canvas_size, 0)
+        mask_canvas.paste(alpha, (pad, pad))
+
+        outer_glow = mask_canvas.filter(ImageFilter.GaussianBlur(radius=28))
+        inner_glow = mask_canvas.filter(ImageFilter.GaussianBlur(radius=10))
+        ring_mask = ImageChops.subtract(outer_glow, inner_glow)
+        ring_mask = ImageOps.autocontrast(ring_mask, cutoff=4)
+        ring_mask = ring_mask.filter(ImageFilter.GaussianBlur(radius=3))
+
+        ambient_mask = ImageOps.autocontrast(outer_glow, cutoff=14)
+        ambient_mask = ambient_mask.filter(ImageFilter.GaussianBlur(radius=6))
+
+        edge_expand = mask_canvas.filter(ImageFilter.MaxFilter(size=9))
+        edge_shrink = mask_canvas.filter(ImageFilter.MinFilter(size=5))
+        edge_outline = ImageChops.subtract(edge_expand, edge_shrink)
+        edge_outline = ImageOps.autocontrast(edge_outline, cutoff=10)
 
         primary_rgb = self._dominant_color(base)
-        glow_layer = Image.new("RGBA", (base.width + pad * 2, base.height + pad * 2), (0, 0, 0, 0))
-        color_layer = Image.new("RGBA", base.size, (*primary_rgb, 255))
-        glow_layer.paste(color_layer, (pad, pad), mask)
-        glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(radius=32))
+        accent_rgb = self._hex_to_rgb(self.secondary_accent)
 
-        secondary_rgb = self._hex_to_rgb(self.secondary_accent)
-        accent_layer = Image.new("RGBA", base.size, (*secondary_rgb, 220))
-        accent_glow = Image.new("RGBA", glow_layer.size, (0, 0, 0, 0))
-        accent_glow.paste(accent_layer, (pad, pad), mask)
-        accent_glow = accent_glow.filter(ImageFilter.GaussianBlur(radius=18))
+        ambient_layer = Image.new("RGBA", canvas_size, (*accent_rgb, 0))
+        ambient_layer.putalpha(ambient_mask)
 
-        composite = Image.new("RGBA", glow_layer.size, (5, 8, 20, 0))
-        composite.alpha_composite(glow_layer)
-        composite.alpha_composite(accent_glow)
+        ring_layer = Image.new("RGBA", canvas_size, (*primary_rgb, 0))
+        ring_layer.putalpha(ring_mask)
+
+        outline_layer = Image.new("RGBA", canvas_size, (*accent_rgb, 0))
+        outline_layer.putalpha(edge_outline)
+
+        composite = Image.new("RGBA", canvas_size, (*self._hex_to_rgb(BASE_BACKGROUND), 0))
+        composite.alpha_composite(ambient_layer)
+        composite.alpha_composite(ring_layer)
+        composite.alpha_composite(outline_layer)
         composite.alpha_composite(base, (pad, pad))
 
-        accent_border_color = tuple(list(secondary_rgb) + [120])
+        accent_border_color = tuple(list(accent_rgb) + [110])
         composite = ImageOps.expand(composite, border=2, fill=accent_border_color)
-        composite = ImageOps.expand(composite, border=4, fill=(5, 8, 20, 255))
+        composite = ImageOps.expand(
+            composite,
+            border=4,
+            fill=(*self._hex_to_rgb(BASE_BACKGROUND), 255),
+        )
 
         return composite
 
@@ -356,7 +375,7 @@ class TrackerFrame(ttk.Frame):
 
     def _update_timeframe_buttons(self):
         for key, btn in self.timeframe_buttons.items():
-            bootstyle = "success" if key == self.timeframe_var.get() else "dark-outline"
+            bootstyle = "info" if key == self.timeframe_var.get() else "secondary-outline"
             btn.configure(bootstyle=bootstyle)
 
     def _plot_chart(self):
@@ -398,11 +417,11 @@ class TrackerFrame(ttk.Frame):
         plt.close("all")
         plt.style.use("dark_background")
         fig, ax = plt.subplots(figsize=(6.8, 3.5), dpi=135)
-        fig.patch.set_facecolor("#05070f")
-        ax.set_facecolor("#09122a")
+        fig.patch.set_facecolor(BASE_BACKGROUND)
+        ax.set_facecolor("#0b1a34")
 
-        line_color = "#7cf9d2"
-        fill_color = "#0f3c46"
+        line_color = ACCENT_COLOR
+        fill_color = "#0f2f5c"
 
         times, prices = zip(*self.chart_points)
         now = datetime.now(timezone.utc).astimezone(times[0].tzinfo)
@@ -444,15 +463,15 @@ class TrackerFrame(ttk.Frame):
             linewidth=2.6,
             marker="o",
             markersize=4,
-            markerfacecolor="#05070f",
-            markeredgecolor="#7cf9d2",
+            markerfacecolor=BASE_BACKGROUND,
+            markeredgecolor=ACCENT_COLOR,
         )
         if len(filtered_prices) > 1:
             ax.fill_between(filtered_times, filtered_prices, color=fill_color, alpha=0.22)
 
         ax.set_title(
             f"Median Price — {timeframe.capitalize()} View",
-            color="#9aa6ff",
+            color="#94b7ff",
             fontsize=11,
             pad=16,
             fontweight="bold",
@@ -462,19 +481,19 @@ class TrackerFrame(ttk.Frame):
         formatter = mdates.ConciseDateFormatter(locator)
         ax.xaxis.set_major_locator(locator)
         ax.xaxis.set_major_formatter(formatter)
-        ax.tick_params(colors="#94a3ff", labelsize=8)
-        ax.xaxis.set_tick_params(rotation=0, labelcolor="#b0b9ff")
+        ax.tick_params(colors="#7f9bff", labelsize=8)
+        ax.xaxis.set_tick_params(rotation=0, labelcolor="#a9c2ff")
 
         dollar_formatter = ticker.FuncFormatter(lambda val, _: f"${val:,.2f}")
         ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=6))
         ax.yaxis.set_major_formatter(dollar_formatter)
-        ax.yaxis.label.set_color("#9aa6ff")
+        ax.yaxis.label.set_color("#94b7ff")
         ax.set_ylabel("Median Price", fontsize=9)
 
         for spine in ax.spines.values():
-            spine.set_color("#1c2750")
+            spine.set_color("#1b2b4d")
 
-        ax.grid(which="major", color="#1c2750", linestyle="-", linewidth=0.8, alpha=0.8)
+        ax.grid(which="major", color="#1b2b4d", linestyle="-", linewidth=0.8, alpha=0.8)
 
         range_end = now
         if len(filtered_times) == 1:
@@ -489,7 +508,7 @@ class TrackerFrame(ttk.Frame):
         ax.margins(x=0.03)
         ax.margins(y=0.1)
 
-        ax.set_xlabel("Date", color="#e5e7eb", fontsize=9)
+        ax.set_xlabel("Date", color="#d4defc", fontsize=9)
 
         buf = io.BytesIO()
         fig.canvas.print_png(buf)
@@ -510,7 +529,7 @@ class App(tb.Window):
         self.style.theme_use("cyborg")
         style = self.style
 
-        neon_bg = "#05070f"
+        neon_bg = BASE_BACKGROUND
         card_bg = CARD_BACKGROUND
 
         self.configure(background=neon_bg)
@@ -518,15 +537,15 @@ class App(tb.Window):
 
         style.configure("TrackerFrame.TFrame", background=neon_bg)
         style.configure("NeonCard.TFrame", background=card_bg, borderwidth=0)
-        style.configure("NeonPrimary.TLabel", background=card_bg, foreground="#f4f7ff", font=("Orbitron", 16, "bold"))
-        style.configure("NeonSecondary.TLabel", background=card_bg, foreground="#8aa9ff", font=("Segoe UI", 9))
+        style.configure("NeonPrimary.TLabel", background=card_bg, foreground="#f3f7ff", font=("Orbitron", 16, "bold"))
+        style.configure("NeonSecondary.TLabel", background=card_bg, foreground="#9ab5ff", font=("Segoe UI", 9))
         style.configure("NeonValue.TLabel", background=card_bg, foreground=ACCENT_COLOR, font=("Share Tech Mono", 13, "bold"))
-        style.configure("NeonValueSecondary.TLabel", background=card_bg, foreground="#7fd3ff", font=("Share Tech Mono", 12))
-        style.configure("NeonInfo.TLabel", background=card_bg, foreground="#7c8ba7", font=("Segoe UI", 9))
+        style.configure("NeonValueSecondary.TLabel", background=card_bg, foreground="#8ec7ff", font=("Share Tech Mono", 12))
+        style.configure("NeonInfo.TLabel", background=card_bg, foreground="#738ab4", font=("Segoe UI", 9))
         style.configure("NeonImage.TLabel", background=card_bg)
-        style.configure("Chart.TLabel", background=neon_bg, foreground="#8aa9ff", font=("Share Tech Mono", 11))
+        style.configure("Chart.TLabel", background=neon_bg, foreground="#9ab5ff", font=("Share Tech Mono", 11))
         style.configure("Footer.TFrame", background=neon_bg)
-        style.configure("Footer.TLabel", background=neon_bg, foreground="#7c8ba7", font=("Segoe UI", 9))
+        style.configure("Footer.TLabel", background=neon_bg, foreground="#6f82a8", font=("Segoe UI", 9))
         style.configure("TButton", font=("Segoe UI", 10))
 
         client = SteamMarketClient(appid=APPID, currency=CURRENCY)
