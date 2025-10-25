@@ -309,38 +309,45 @@ class TrackerFrame(ttk.Frame):
         base = ImageOps.contain(pil_img.convert("RGBA"), (220, 220))
         alpha = base.split()[-1]
 
-        pad = 52
+        pad = 48
         canvas_size = (base.width + pad * 2, base.height + pad * 2)
 
         mask_canvas = Image.new("L", canvas_size, 0)
         mask_canvas.paste(alpha, (pad, pad))
 
-        halo_layer = self._build_color_halo(base, canvas_size, pad, mask_canvas)
+        glow_mask = mask_canvas.filter(ImageFilter.GaussianBlur(radius=36))
+        glow_mask = ImageOps.autocontrast(glow_mask, cutoff=12)
 
-        edge_expand = mask_canvas.filter(ImageFilter.MaxFilter(size=9))
-        edge_shrink = mask_canvas.filter(ImageFilter.MinFilter(size=5))
-        edge_outline = ImageChops.subtract(edge_expand, edge_shrink)
-        edge_outline = ImageOps.autocontrast(edge_outline, cutoff=10)
-        edge_outline = edge_outline.filter(ImageFilter.GaussianBlur(radius=1.3))
+        highlight_mask = mask_canvas.filter(ImageFilter.GaussianBlur(radius=12))
+        highlight_mask = ImageOps.autocontrast(highlight_mask, cutoff=20)
 
-        edge_layer = Image.new("RGBA", canvas_size, (0, 0, 0, 0))
-        edge_layer.paste(base, (pad, pad))
-        edge_layer = edge_layer.filter(ImageFilter.GaussianBlur(radius=1.1))
-        edge_layer.putalpha(edge_outline)
+        shadow_mask = ImageChops.offset(mask_canvas, 0, 16)
+        shadow_mask = ImageOps.autocontrast(shadow_mask, cutoff=6)
+        shadow_mask = shadow_mask.filter(ImageFilter.GaussianBlur(radius=24))
+
+        background = self._create_background_gradient(canvas_size)
+        composite = background.convert("RGBA")
 
         accent_rgb = self._hex_to_rgb(self.secondary_accent)
-        accent_layer = Image.new("RGBA", canvas_size, (*accent_rgb, 0))
-        accent_mask = halo_layer.split()[-1].filter(ImageFilter.GaussianBlur(radius=6))
-        accent_layer.putalpha(self._scale_mask(accent_mask, 0.35))
+        primary_rgb = self._dominant_color(base)
 
-        composite = Image.new("RGBA", canvas_size, (*self._hex_to_rgb(BASE_BACKGROUND), 0))
-        composite.alpha_composite(accent_layer)
-        composite.alpha_composite(halo_layer)
-        composite.alpha_composite(edge_layer)
+        glow_layer = Image.new("RGBA", canvas_size, (*primary_rgb, 0))
+        glow_layer.putalpha(glow_mask)
+
+        highlight_color = self._mix_colors(primary_rgb, accent_rgb, 0.35)
+        highlight_layer = Image.new("RGBA", canvas_size, (*highlight_color, 0))
+        highlight_layer.putalpha(highlight_mask)
+
+        shadow_layer = Image.new("RGBA", canvas_size, (10, 14, 28, 0))
+        shadow_layer.putalpha(shadow_mask)
+
+        composite.alpha_composite(shadow_layer)
+        composite.alpha_composite(glow_layer)
+        composite.alpha_composite(highlight_layer)
         composite.alpha_composite(base, (pad, pad))
 
-        accent_border_color = tuple(list(accent_rgb) + [110])
-        composite = ImageOps.expand(composite, border=2, fill=accent_border_color)
+        border_accent = tuple(list(accent_rgb) + [120])
+        composite = ImageOps.expand(composite, border=2, fill=border_accent)
         composite = ImageOps.expand(
             composite,
             border=4,
@@ -417,6 +424,45 @@ class TrackerFrame(ttk.Frame):
     def _hex_to_rgb(self, hex_color: str) -> tuple[int, int, int]:
         hex_color = hex_color.lstrip("#")
         return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+    def _create_background_gradient(self, size: tuple[int, int]) -> Image.Image:
+        width, height = size
+        gradient = Image.linear_gradient("L").rotate(90, expand=True)
+        gradient = gradient.resize((width, height), Image.BICUBIC)
+
+        base_rgb = self._hex_to_rgb(BASE_BACKGROUND)
+        accent_rgb = self._hex_to_rgb(self.secondary_accent)
+        deep_tone = self._mix_colors(base_rgb, accent_rgb, 0.15)
+        light_tone = self._mix_colors(base_rgb, (240, 240, 255), 0.18)
+
+        colored = ImageOps.colorize(
+            gradient,
+            black=self._rgb_to_hex(deep_tone),
+            white=self._rgb_to_hex(light_tone),
+        )
+        vignette = Image.linear_gradient("L")
+        vignette = vignette.resize((width, height), Image.BICUBIC)
+        vignette = ImageOps.invert(vignette)
+        vignette = vignette.filter(ImageFilter.GaussianBlur(radius=24))
+
+        vignette_layer = Image.new("RGBA", (width, height), (*base_rgb, 0))
+        vignette_layer.putalpha(vignette)
+
+        background = colored.convert("RGBA")
+        background.alpha_composite(vignette_layer)
+        return background
+
+    def _mix_colors(
+        self, rgb_a: tuple[int, int, int], rgb_b: tuple[int, int, int], ratio: float
+    ) -> tuple[int, int, int]:
+        ratio = max(0.0, min(1.0, ratio))
+        mixed = []
+        for a, b in zip(rgb_a, rgb_b):
+            mixed.append(int(a * (1 - ratio) + b * ratio))
+        return tuple(mixed)
+
+    def _rgb_to_hex(self, rgb: tuple[int, int, int]) -> str:
+        return "#" + "".join(f"{component:02x}" for component in rgb)
 
     def _set_timeframe(self, timeframe: str):
         if timeframe == self.timeframe_var.get():
