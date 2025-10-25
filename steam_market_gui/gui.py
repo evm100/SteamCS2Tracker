@@ -8,6 +8,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import ttkbootstrap as tb
 from PIL import Image, ImageTk, ImageFilter, ImageOps, ImageChops
+import numpy as np
+
 import matplotlib
 matplotlib.use("Agg")  # render offscreen, then show as image in Tk
 import matplotlib.pyplot as plt
@@ -293,42 +295,34 @@ class TrackerFrame(ttk.Frame):
         base = ImageOps.contain(pil_img.convert("RGBA"), (220, 220))
         alpha = base.split()[-1]
 
-        pad = 44
+        pad = 52
         canvas_size = (base.width + pad * 2, base.height + pad * 2)
 
         mask_canvas = Image.new("L", canvas_size, 0)
         mask_canvas.paste(alpha, (pad, pad))
 
-        outer_glow = mask_canvas.filter(ImageFilter.GaussianBlur(radius=28))
-        inner_glow = mask_canvas.filter(ImageFilter.GaussianBlur(radius=10))
-        ring_mask = ImageChops.subtract(outer_glow, inner_glow)
-        ring_mask = ImageOps.autocontrast(ring_mask, cutoff=4)
-        ring_mask = ring_mask.filter(ImageFilter.GaussianBlur(radius=3))
-
-        ambient_mask = ImageOps.autocontrast(outer_glow, cutoff=14)
-        ambient_mask = ambient_mask.filter(ImageFilter.GaussianBlur(radius=6))
+        halo_layer = self._build_color_halo(base, canvas_size, pad, mask_canvas)
 
         edge_expand = mask_canvas.filter(ImageFilter.MaxFilter(size=9))
         edge_shrink = mask_canvas.filter(ImageFilter.MinFilter(size=5))
         edge_outline = ImageChops.subtract(edge_expand, edge_shrink)
         edge_outline = ImageOps.autocontrast(edge_outline, cutoff=10)
+        edge_outline = edge_outline.filter(ImageFilter.GaussianBlur(radius=1.3))
 
-        primary_rgb = self._dominant_color(base)
+        edge_layer = Image.new("RGBA", canvas_size, (0, 0, 0, 0))
+        edge_layer.paste(base, (pad, pad))
+        edge_layer = edge_layer.filter(ImageFilter.GaussianBlur(radius=1.1))
+        edge_layer.putalpha(edge_outline)
+
         accent_rgb = self._hex_to_rgb(self.secondary_accent)
-
-        ambient_layer = Image.new("RGBA", canvas_size, (*accent_rgb, 0))
-        ambient_layer.putalpha(ambient_mask)
-
-        ring_layer = Image.new("RGBA", canvas_size, (*primary_rgb, 0))
-        ring_layer.putalpha(ring_mask)
-
-        outline_layer = Image.new("RGBA", canvas_size, (*accent_rgb, 0))
-        outline_layer.putalpha(edge_outline)
+        accent_layer = Image.new("RGBA", canvas_size, (*accent_rgb, 0))
+        accent_mask = halo_layer.split()[-1].filter(ImageFilter.GaussianBlur(radius=6))
+        accent_layer.putalpha(self._scale_mask(accent_mask, 0.35))
 
         composite = Image.new("RGBA", canvas_size, (*self._hex_to_rgb(BASE_BACKGROUND), 0))
-        composite.alpha_composite(ambient_layer)
-        composite.alpha_composite(ring_layer)
-        composite.alpha_composite(outline_layer)
+        composite.alpha_composite(accent_layer)
+        composite.alpha_composite(halo_layer)
+        composite.alpha_composite(edge_layer)
         composite.alpha_composite(base, (pad, pad))
 
         accent_border_color = tuple(list(accent_rgb) + [110])
@@ -340,6 +334,53 @@ class TrackerFrame(ttk.Frame):
         )
 
         return composite
+
+    def _build_color_halo(
+        self,
+        base: Image.Image,
+        canvas_size: tuple[int, int],
+        pad: int,
+        mask_canvas: Image.Image,
+    ) -> Image.Image:
+        halo_source = Image.new("RGBA", canvas_size, (0, 0, 0, 0))
+        halo_source.paste(base, (pad, pad))
+
+        premultiplied = self._premultiply_alpha(halo_source)
+        blurred = premultiplied
+        for radius in (26, 48):
+            blurred = blurred.filter(ImageFilter.GaussianBlur(radius=radius))
+
+        blurred = self._unpremultiply_alpha(blurred)
+
+        halo_alpha = ImageChops.subtract(blurred.split()[-1], mask_canvas)
+        halo_alpha = ImageOps.autocontrast(halo_alpha, cutoff=6)
+        halo_alpha = halo_alpha.filter(ImageFilter.GaussianBlur(radius=6))
+
+        halo_np = np.array(blurred, dtype=np.float32)
+        halo_np[..., :3] = np.clip(halo_np[..., :3] * 1.18 + 12, 0, 255)
+        halo_image = Image.fromarray(halo_np.astype(np.uint8), "RGBA")
+        halo_image.putalpha(halo_alpha)
+
+        return halo_image
+
+    def _premultiply_alpha(self, image: Image.Image) -> Image.Image:
+        arr = np.array(image, dtype=np.float32)
+        alpha = arr[..., 3:4] / 255.0
+        arr[..., :3] *= alpha
+        return Image.fromarray(arr.astype(np.uint8), "RGBA")
+
+    def _unpremultiply_alpha(self, image: Image.Image) -> Image.Image:
+        arr = np.array(image, dtype=np.float32)
+        alpha = arr[..., 3]
+        safe_alpha = alpha.copy()
+        safe_alpha[safe_alpha == 0] = 1
+        arr[..., :3] = np.clip(arr[..., :3] * 255.0 / safe_alpha[..., None], 0, 255)
+        arr[..., :3][alpha == 0] = 0
+        return Image.fromarray(arr.astype(np.uint8), "RGBA")
+
+    def _scale_mask(self, mask: Image.Image, factor: float) -> Image.Image:
+        factor = max(0.0, factor)
+        return mask.point(lambda v: min(255, int(v * factor)))
 
     def _dominant_color(self, image: Image.Image) -> tuple[int, int, int]:
         thumb = image.copy()
