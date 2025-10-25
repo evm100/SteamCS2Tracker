@@ -1,4 +1,5 @@
 import os, io, threading, time, sys, csv
+from typing import Optional
 from datetime import datetime
 from urllib.parse import unquote
 from dotenv import load_dotenv
@@ -66,6 +67,8 @@ class TrackerFrame(ttk.Frame):
         self.volume_var = tk.StringVar(value="Volume: —")
         self.updated_var = tk.StringVar(value="Updated: —")
 
+        self._load_cached_snapshot()
+
         self.median_lbl = ttk.Label(self.card, textvariable=self.median_var, font=("Helvetica", 12, "bold"))
         self.lowest_lbl = ttk.Label(self.card, textvariable=self.lowest_var)
         self.volume_lbl = ttk.Label(self.card, textvariable=self.volume_var, style="secondary.TLabel")
@@ -97,6 +100,32 @@ class TrackerFrame(ttk.Frame):
     def open_listing(self):
         import webbrowser
         webbrowser.open(self.listing_url)
+
+    def _load_cached_snapshot(self):
+        last = self.logger.latest()
+        if not last:
+            return
+
+        def fmt_price(value: Optional[float]) -> str:
+            return "n/a" if value is None else f"{value:.2f}"
+
+        self.median_var.set(f"Median: {fmt_price(last.get('median_price'))} (cached)")
+        self.lowest_var.set(f"Lowest: {fmt_price(last.get('lowest_price'))} (cached)")
+        vol = last.get("volume") or "n/a"
+        self.volume_var.set(f"Volume: {vol} (cached)")
+
+        ts = last.get("timestamp")
+        if ts:
+            try:
+                ts_display = ts.isoformat(timespec="seconds")
+            except TypeError:
+                ts_display = ts.isoformat()
+        else:
+            ts_display = last.get("timestamp_iso", "")
+        if ts_display:
+            self.updated_var.set(f"Updated: {ts_display} (cached)")
+        else:
+            self.updated_var.set("Updated: —")
 
     def fetch_all_async(self):
         threading.Thread(target=self._fetch_all, daemon=True).start()
